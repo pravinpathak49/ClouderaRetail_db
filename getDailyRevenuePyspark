@@ -1,0 +1,45 @@
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName('dailyrevenue').getOrCreate()
+sc = spark.sparkContext
+
+orderitems = sc.textFile('/home/hduser/Documents/pyspark/Data/order_items.csv')
+#+---------------+---------------------+-----------------------+---------------------+---------------------+--------------------------+
+#| order_item_id | order_item_order_id | order_item_product_id | order_item_quantity | order_item_subtotal | order_item_product_price |
+#+---------------+---------------------+-----------------------+---------------------+---------------------+--------------------------+
+#|             1 |                   1 |                   957 |                   1 |              299.98 |                   299.98 |
+#|             2 |                   2 |                  1073 |                   1 |              199.99 |                   199.99 |
+#|             3 |                   2 |                   502 |                   5 |                 250 |                       50 |
+
+
+orders = sc.textFile('/home/hduser/Documents/pyspark/Data/orders.csv')
+#+----------+---------------------+-------------------+-----------------+
+#| order_id | order_date          | order_customer_id | order_status    |
+#+----------+---------------------+-------------------+-----------------+
+#|        1 | 2013-07-25 00:00:00 |             11599 | CLOSED          |
+#|        2 | 2013-07-25 00:00:00 |               256 | PENDING_PAYMENT |
+
+
+#get the total revenue per orderid 
+#orderitemsmap = orderitems.map(lambda s: (int(s.split(',')[1]),float(s.split(',')[4])))
+# (1, 299.98), (2, 199.99), (2, 250.0), (2, 129.99), (4, 49.98)
+
+#we are using groupByKey  it will convert [(2, 199.99),(2, 250.0),(2, 129.99)] --> (2,[199.99,250.0,129.99])
+# based on key on the result value will be iterable. so we need to do one more aggregation on the value
+#orderitemsgrpbykey = orderitemsmap.groupByKey()
+#orderrevenue = orderitemsgrpbykey.map(lambda o: (o[0],sum(o[1])))
+
+#the same can be acheived by using reduceByKey() as well
+#orderrevenuereduce = orderitemsmap.reduceByKey(lambda x,y: x+y)
+ 
+ #filter only complete and closed records and get orderid and order_date only
+orderskv = orders.filter(lambda s: s.split(',')[3] in ("CLOSED","COMPLETE")).map(lambda s: (int(s.split(',')[0]),s.split(',')[1]))
+
+#get orderid as key from orderitems tuple to join and also 
+orderitemskv = orderitems.map(lambda s: (int(s.split(',')[1]),float(s.split(',')[4]))).reduceByKey(lambda x,y: x+y)
+
+#join the rdd
+joinedrdd = orderitemskv.join(orderskv)
+# (65536, (899.8400000000001, '2014-05-16 00:00:00')),(4, (699.85, '2013-07-25 00:00:00')),(65468, (1079.93, '2014-05-13 00:00:00')),
+
+# dayrevenuerdd = joinedrdd.map(lambda s: (s[1][1],int(s[1][0]))).reduceByKey(add).sortByKey()
+dayrevenuerdd = joinedrdd.map(lambda s: (s[1][1],int(s[1][0]))).reduceByKey(lambda x,y: x+y).sortByKey(False)
